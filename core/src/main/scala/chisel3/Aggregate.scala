@@ -29,7 +29,15 @@ sealed abstract class Aggregate extends Data {
     val resolvedDirection = SpecifiedDirection.fromParent(parentDirection, specifiedDirection)
     val duplicates = getElements.groupBy(identity).collect { case (x, elts) if elts.size > 1 => x }
     if (!duplicates.isEmpty) {
-      throw new AliasedAggregateFieldException(s"Aggregate $this contains aliased fields $duplicates")
+      this match {
+        case b: Bundle =>
+          val dupNames = b.elements.collect { case x if x._2._id == duplicates.head._id => x._1 }
+          throw new AliasedAggregateFieldException(
+            s"Bundle $this contains aliased fields named ${dupNames.mkString(",")}"
+          )
+        case _ =>
+          throw new AliasedAggregateFieldException(s"Aggregate $this contains aliased fields $duplicates ${duplicates.mkString(",")}")
+      }
     }
     for (child <- getElements) {
       child.bind(ChildBinding(this), resolvedDirection)
@@ -538,8 +546,8 @@ object VecInit extends SourceInfoDoc {
 
     val vec = Wire(Vec(elts.length, cloneSupertype(elts, "Vec")))
     val op = getConnectOpFromDirectionality(vec.head)
-    
-    (vec zip elts).foreach{ x => 
+
+    (vec zip elts).foreach{ x =>
       op(x._1, x._2)
     }
     vec
@@ -1069,12 +1077,50 @@ abstract class Bundle(implicit compileOptions: CompileOptions) extends Record {
     * }}}
     */
   final lazy val elements: SeqMap[String, Data] = {
+    val hardwareFields = _elementsImpl.flatMap {
+      case (name, data: Data) =>
+        if (data.isSynthesizable) {
+          Some(s"$name: $data")
+        } else {
+          None
+        }
+      case (name, data: Some[Data]) =>
+        if (data.get.isSynthesizable) {
+          Some(s"$name: $data")
+        } else {
+          None
+        }
+      case _ => None
+    }
+    if (hardwareFields.nonEmpty) {
+      throw ExpectedChiselTypeException(s"Bundle: $this contains hardware fields: " + hardwareFields.mkString(","))
+    }
+    VectorMap(
+      _elementsImpl
+        .toSeq
+        .flatMap {
+          case (name, data: Data) =>
+              Some(name -> data)
+          case (name, data: Some[Data]) =>
+              Some(name -> data.get)
+          case _ => None
+        }
+        .sortWith {
+      case ((an, a), (bn, b)) => (a._id > b._id) || ((a eq b) && (an > bn))
+    }: _*)
+  }
+  /*
+   * This method will be overwritten by the Chisel-Plugin
+   */
+  protected def _elementsImpl: SeqMap[String, Any] = {
     val nameMap = LinkedHashMap[String, Data]()
     for (m <- getPublicFields(classOf[Bundle])) {
       getBundleField(m) match {
         case Some(d: Data) =>
-          requireIsChiselType(d)
-          
+// TODO: Removing this requirement so it occurs later in process making it easier to
+//       match up BundleComponent plugin behavior
+//          requireIsChiselType(d)
+
           if (nameMap contains m.getName) {
             require(nameMap(m.getName) eq d)
           } else {
@@ -1092,6 +1138,42 @@ abstract class Bundle(implicit compileOptions: CompileOptions) extends Record {
                   "IgnoreSeqInBundle.")
                 case _ => // don't care about non-Data Seq
               }
+              case _ => // not a Seq
+            }
+          }
+      }
+    }
+    VectorMap(nameMap.toSeq sortWith { case ((an, a), (bn, b)) => (a._id > b._id) || ((a eq b) && (an > bn)) }: _*)
+  }
+
+  /* This is for checking compatibility between using bundle plugin vs not using it
+   */
+  def oldElementsNoChecks: SeqMap[String, Data] = {
+    val nameMap = LinkedHashMap[String, Data]()
+    for (m <- getPublicFields(classOf[Bundle])) {
+      getBundleField(m) match {
+        case Some(d: Data) =>
+          if (nameMap contains m.getName) {
+
+          } else {
+            nameMap(m.getName) = d
+          }
+        case None =>
+          if (!ignoreSeq) {
+            m.invoke(this) match {
+              case s: scala.collection.Seq[Any] if s.nonEmpty =>
+                s.head match {
+                  // Ignore empty Seq()
+                  case d: Data =>
+                    throwException(
+                      "Public Seq members cannot be used to define Bundle elements " +
+                        s"(found public Seq member '${m.getName}'). " +
+                        "Either use a Vec if all elements are of the same type, or MixedVec if the elements " +
+                        "are of different types. If this Seq member is not intended to construct RTL, mix in the trait " +
+                        "IgnoreSeqInBundle."
+                    )
+                  case _ => // don't care about non-Data Seq
+                }
               case _ => // not a Seq
             }
           }
