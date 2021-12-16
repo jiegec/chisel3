@@ -9,7 +9,7 @@ import scala.reflect.internal.util.NoPosition
 
 private[plugin] case class ChiselPluginArguments(
   var useBundlePlugin: Boolean = true,
-  var buildElementsAccessor: Boolean = false,
+  var buildElementsAccessor: Boolean = true,
   var pluginDebugBundlePattern: String = ""
 ) {
   def useBundlePluginOpt = "useBundlePlugin"
