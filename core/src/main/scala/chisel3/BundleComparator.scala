@@ -1,6 +1,6 @@
 package chisel3
 
-/** This comparator compares the new and old elements accessor of a `Bbundle``'s fields
+/** This comparator compares the new and old elements accessor of a [[Bundle]]'s fields
   * It lives here at the present to make working on the compiler plugin easier to
   * test without having to recompile all tests in order to test the plugin.
   * It would be nice to have tests in the plugin but that is hard to do
