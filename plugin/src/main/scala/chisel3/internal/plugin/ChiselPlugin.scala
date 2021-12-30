@@ -10,7 +10,7 @@ import scala.collection.mutable
 
 private[plugin] case class ChiselPluginArguments(
   val skipFiles: mutable.HashSet[String] = mutable.HashSet.empty,
-  var buildElementsAccessor: Boolean = false,
+  var buildElementsAccessor: Boolean = true,
   var pluginDebugBundlePattern: String = "" // For example try .*Bpip.*"
 ) {
   def useBundlePluginOpt = "useBundlePlugin"
