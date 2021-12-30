@@ -41,13 +41,12 @@ private[plugin] class BundleComponent(val global: Global, arguments: ChiselPlugi
 
     def inferType(t: Tree): Type = localTyper.typed(t, nsc.Mode.TYPEmode).tpe
 
-    val bundleTpe:         Type = inferType(tq"chisel3.Bundle")
-    val dataTpe:           Type = inferType(tq"chisel3.Data")
-    val genericSeq:        Type = inferType(tq"scala.collection.Seq[_]")
-    val seqOfUIntTpe:      Type = inferType(tq"scala.collection.Seq[chisel3.UInt]")
-    val seqOfDataTpe:      Type = inferType(tq"scala.collection.Seq[chisel3.Data]")
-    val seqMapTpe:         Type = inferType(tq"scala.collection.immutable.SeqMap[String,Any]")
-    val ignoreSeqInBundle: Type = inferType(tq"chisel3.IgnoreSeqInBundle")
+    val bundleTpe:     Type = inferType(tq"chisel3.Bundle")
+    val dataTpe:       Type = inferType(tq"chisel3.Data")
+    val genericSeq:    Type = inferType(tq"scala.collection.Seq[_]")
+    val seqOfDataTpe:  Type = inferType(tq"scala.collection.Seq[chisel3.Data]")
+    val someOfDataTpe: Type = inferType(tq"scala.Option[chisel3.Data]")
+    val seqMapTpe:     Type = inferType(tq"scala.collection.immutable.SeqMap[String,Any]")
 
     // Not cached because it should only be run once per class (thus once per Type)
     def isBundle(sym: Symbol): Boolean = { sym.tpe <:< bundleTpe }
@@ -61,13 +60,17 @@ private[plugin] class BundleComponent(val global: Global, arguments: ChiselPlugi
     def typeIsSeqOfData(tpe: Type): Boolean = {
       tpe.toString.contains("Seq[chisel3")
     }
-    def typeIsOptionOfData(tpe: Type): Boolean = {
-      tpe.toString.startsWith("=> Option[chisel3") ||
-      tpe.toString.startsWith("Option[chisel3")
+
+    def isOptionOfData(symbol: Symbol): Boolean = {
+      val tpe = symbol.tpe
+      tpe match {
+        case NullaryMethodType(resultType) =>
+          resultType <:< someOfDataTpe
+        case _ =>
+          false
+      }
     }
-    def isSeqOfUInt(sym: Symbol): Boolean = { sym.tpe <:< seqOfUIntTpe }
     def isExactBundle(sym: Symbol): Boolean = { sym.tpe =:= bundleTpe }
-    def isIgnoreSeqInBundle(sym: Symbol): Boolean = { sym.tpe <:< ignoreSeqInBundle }
 
     // Cached because this is run on every argument to every Bundle
     val isDataCache = new mutable.HashMap[Type, Boolean]
@@ -166,21 +169,10 @@ private[plugin] class BundleComponent(val global: Global, arguments: ChiselPlugi
           arguments.buildElementsAccessor && !bundle.mods.hasFlag(Flag.ABSTRACT)
         }
 
-//        def showInfo(info: Type): String = {
-//          info.members.mkString("\n")
-//        }
-
         if (isSupportedBundleType) {
           show(("#" * 80 + "\n") * 2)
           show(s"Processing: Bundle named: ${bundle.name.toString}")
           show(" ")
-//          show(s"BundleType: ${bundle.symbol.typeSignature.toString}")
-//          show("Bundle parents: \n" + bundle.impl.parents.map { parent =>
-//            s"parent: ${parent.symbol.name} [${isBundle(parent.symbol)}] " +
-//              s"IsBundle=" + isBundle(parent.symbol) + parent.symbol + "\n" +
-////              "parent.symbol.info.decl: " + parent.symbol.info.decl(parent.symbol.info.decls.head.name). +
-//              s"\nDecls::\n  " + showInfo(parent.symbol.info)
-//          }.mkString("\n"))
 
           /* extract the true fields from the super classes a given bundle
            */
@@ -194,17 +186,17 @@ private[plugin] class BundleComponent(val global: Global, arguments: ChiselPlugi
             }
 
             def isBundleField(member: Symbol): Boolean = {
-              if (member.isAccessor && isData(member.tpe.typeSymbol)) {
-                indentShow(
-                  s"\nProcessing member $member isMethod=${member.isMethod} isAccessor==${member.isAccessor}" +
-                    s"\ntpe                ${member.tpe} " +
-                    s"\nisData             ${isData(member.tpe.typeSymbol)} " +
-                    ""
-                )
+              if (!member.isAccessor) {
+//                indentShow(s"- $member is not accessor")
+                false
+              } else if (isData(member.tpe.typeSymbol)) {
+                indentShow(s"+ $member is Data")
                 true
-              } else if (typeIsOptionOfData(member.tpe)) {
+              } else if (isOptionOfData(member)) {
+                indentShow(s"+ $member is Option[Data]")
                 true
               } else {
+//                indentShow(s"- $member not Data or Option[Data]")
                 false
               }
             }
@@ -215,10 +207,6 @@ private[plugin] class BundleComponent(val global: Global, arguments: ChiselPlugi
 
               case member if member.isPublic =>
                 if (isBundleField(member)) {
-                  indentShow(
-                    s"  MATCHED: Bundle Member $member  isData=${isData(member)}" +
-                      s" ${showRaw(member)} : ${showRaw(member.typeSignature)}"
-                  )
                   // The params have spaces after them (Scalac implementation detail)
                   Some(member.name.toString.trim -> gen.mkAttributedSelect(thiz.asInstanceOf[Tree], member))
                 } else {
@@ -268,8 +256,6 @@ private[plugin] class BundleComponent(val global: Global, arguments: ChiselPlugi
 
           //TODO: These should go away
           show("ELEMENTS:\n" + elementArgs.map { case (symbol, tree) => s"($symbol, $tree)" }.mkString("\n"))
-//          show("ElementsImpl: " + showRaw(elementsImpl) + "\n\n\n")
-//          show("ElementsImpl: " + elementsImpl + "\n\n\n")
           additionalMethods ++= Seq(elementsImpl)
 
           show(("#" * 80 + "\n") * 2)

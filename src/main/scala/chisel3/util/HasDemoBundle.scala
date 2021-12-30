@@ -424,3 +424,96 @@
 //  }
 //}
 //
+///* plugin should error correctly when bundles contain only a Option field
+// *
+// */
+//
+//object DebugProblem17 {
+//  implicit class BooleanToAugmentedBoolean(private val x: Boolean) extends AnyVal {
+//    def toInt: Int = if (x) 1 else 0
+//
+//    // this one's snagged from scalaz
+//    def option[T](z: => T): Option[T] = if (x) Some(z) else None
+//  }
+//
+//  case class ALUConfig(
+//    xLen: Int,
+//    mul:  Boolean,
+//    b:    Boolean)
+//
+//  class BitManIO extends Bundle {
+//    val funct3 = Input(UInt(3.W))
+//    val funct7 = Input(UInt(7.W))
+//  }
+//
+//  class ALU(c: ALUConfig) extends Module {
+//
+//    class BpipOptionBundle extends Bundle with IgnoreSeqInBundle {
+//      val bpipUIntVal = Input(UInt(8.W))
+//      lazy val bpipUIntLazyVal = Input(UInt(8.W))
+//      var bpipUIntVar = Input(UInt(8.W))
+//      def bpipUIntDef = Input(UInt(8.W))
+//
+//      val bpipOptionUInt = Some(Input(UInt(16.W)))
+//      val bpipOptionOfBundle = c.b.option(new BitManIO)
+//      val bpipSeqData = Seq(UInt(8.W), UInt(8.W))
+//    }
+//
+//    val io = IO(new BpipOptionBundle)
+//    BundleComparator(io, showComparison = true)
+//  }
+//
+//  def main(args: Array[String]): Unit = {
+//    ChiselStage.emitFirrtl(new ALU(ALUConfig(10, mul = true, b = false)))
+//  }
+//}
+///* special case found in testing
+// *
+// */
+//
+//object DebugProblem18 {
+//  class Bundle0 extends Bundle {
+//    val a = UInt(8.W)
+//    val b = Bool()
+//    val c = Enum0.Type
+//  }
+//
+//  class Bundle1 extends Bundle {
+//    val a = new Bundle0
+//    val b = Vec(4, Vec(4, Bool()))
+//  }
+//
+//  class Module0 extends Module {
+//    val i = IO(Input(new Bundle1))
+//    val o = IO(Output(new Bundle1))
+//    val r = Reg(new Bundle1)
+//    o := r
+//    r := i
+//
+//    BundleComparator(i, showComparison = true)
+//    BundleComparator(o, showComparison = true)
+//    BundleComparator(r, showComparison = true)
+////    traceName(r)
+////    traceName(i)
+////    traceName(o)
+//  }
+//
+//  class Module1 extends Module {
+//    val i = IO(Input(new Bundle1))
+//    val m0 = Module(new Module0)
+//    m0.i := i
+//    m0.o := DontCare
+//    BundleComparator(i, showComparison = true)
+//
+//  }
+//
+//  object Enum0 extends ChiselEnum {
+//    val s0, s1, s2 = Value
+//  }
+//
+//
+//
+//  def main(args: Array[String]): Unit = {
+//    ChiselStage.emitFirrtl(new Module1)
+//  }
+//}
